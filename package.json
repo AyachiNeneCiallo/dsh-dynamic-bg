@@ -1,0 +1,44 @@
+{
+  "name": "dsh-dynamic-bg",
+  "version": "0.3.0",
+  "description": "DSH 动态壁纸插件：把本地视频作为 DeepSeek Harness 聊天界面的全屏动态背景",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client.js"
+  },
+  "files": [
+    "lib",
+    "client.js",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "background",
+    "wallpaper",
+    "video"
+  ],
+  "author": "AyachiNeneCiallo",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AyachiNeneCiallo/dsh-dynamic-bg.git"
+  },
+  "homepage": "https://github.com/AyachiNeneCiallo/dsh-dynamic-bg#readme",
+  "bugs": {
+    "url": "https://github.com/AyachiNeneCiallo/dsh-dynamic-bg/issues"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web"
+    }
+  }
+}

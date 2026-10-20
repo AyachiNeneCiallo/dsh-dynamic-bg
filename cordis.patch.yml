@@ -1,0 +1,5 @@
+# dsh-dynamic-bg —— DSH bundle patch
+# 把本插件插入 profile 的 loader 层栈。
+- insert:
+    - id: dsh-dynamic-bg
+      name: dsh-dynamic-bg
