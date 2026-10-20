@@ -96,27 +96,9 @@ window.__ModuleLoader__.load({
         var cs = window.getComputedStyle(c);
         if (cs.display === "none" || cs.visibility === "hidden" || Number(cs.opacity) === 0) return false;
 
-        // 遮挡检测：输入框中心点最上层的元素，必须还是输入框自己/其子树/其祖先。
-        // 如果返回的是设置页等覆盖层，说明聊天界面已被盖住。
-        var x = Math.min(Math.max(r.left + r.width / 2, 0), (window.innerWidth || 1) - 1);
-        var y = Math.min(Math.max(r.top + r.height / 2, 0), (window.innerHeight || 1) - 1);
-        var top = document.elementFromPoint(x, y);
-        if (!top) return true; // 命中失败时按聊天处理，避免整体失效
-
-        // 正常情况：中心点落在输入框自己 / 子树 / 祖先上
-        if (top === c || c.contains(top) || top.contains(c)) return true;
-
-        // 命中底层节点（root / body / html）也算聊天：
-        // composer 外层留白区域常是 pointer-events:none，会“穿透”到下层。
-        if (top === document.body || top === document.documentElement || top.id === "root") return true;
-
-        // 只有当覆盖物是「几乎铺满视口」的整页层时，才判定不是聊天界面
-        // （设置页 / 插件市场这类覆盖层）。
-        var tr = top.getBoundingClientRect();
-        var vw = window.innerWidth || 1;
-        var vh = window.innerHeight || 1;
-        if (tr.width * tr.height >= vw * vh * 0.9) return false;
-
+        // 只看输入框是否还在：设置是居中弹层，聊天页并没有离开，
+        // 弹层打开时应当继续保留壁纸。
+        // 真正切走（插件市场等整页视图）时 composer 会被卸载/隐藏。
         return true;
       } catch (e) {
         return false;
