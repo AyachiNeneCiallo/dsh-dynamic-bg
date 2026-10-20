@@ -46,8 +46,8 @@ window.__ModuleLoader__.load({
         "  --dsw-alias-fill-l2: transparent !important;",
         "  --dsw-alias-bg-module-platform: transparent !important;",
         "  --dsw-alias-markdown-code-block: transparent !important;",
-        "  --dsw-menu-surface-fill: rgba(22,22,26,.94) !important;",
-        "  --dsw-hovercard-bg: rgba(22,22,26,.94) !important;",
+        "  --dsw-menu-surface-fill: rgba(255,255,255,.68) !important;",
+        "  --dsw-hovercard-bg: rgba(255,255,255,.74) !important;",
         "}",
         "html.dshbg-on [class*='_frame'], html.dshbg-on [class*='_centerCol'],",
         "html.dshbg-on [class*='_sidebarCol'], html.dshbg-on [class*='_bottomRow'] {",
@@ -130,8 +130,8 @@ window.__ModuleLoader__.load({
       ["--dsw-alias-settings-card-fill", "transparent"],
       ["--dsw-alias-onboarding-card-fill", "transparent"],
       ["--dsw-alias-onboarding-secondary-fill", "transparent"],
-      ["--dsw-menu-surface-fill", "rgba(22,22,26,.94)"],
-      ["--dsw-hovercard-bg", "rgba(22,22,26,.94)"],
+      ["--dsw-menu-surface-fill", "rgba(255,255,255,.68)"],
+      ["--dsw-hovercard-bg", "rgba(255,255,255,.74)"],
     ];
     var rootVarBackup = null;
 
