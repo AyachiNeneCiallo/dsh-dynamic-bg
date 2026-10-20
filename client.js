@@ -29,37 +29,62 @@ window.__ModuleLoader__.load({
       var st = document.createElement("style");
       st.id = STYLE_ID;
       st.textContent = [
+        // 聊天区 + 左侧会话栏透明，透出壁纸；
+        // 右栏、底栏、设置页等其它区域保持 DSH 原生背景。
         "html.dshbg-on, html.dshbg-on body { background: transparent !important; }",
         "html.dshbg-on #root { background: transparent !important; }",
-        // 背景类 token：大面板全透明，卡片/气泡用极淡的黑色玻璃，
-        // 这样聊天界面透出壁纸，同时文字仍有最低限度衬托。
         "html.dshbg-on {",
         "  --dsw-alias-bg-base: transparent !important;",
         "  --dsw-specific-sidebar-fill: transparent !important;",
-        "  --dsw-alias-bg-layer-1: rgba(0,0,0,.22) !important;",
-        "  --dsw-alias-bg-layer-2: rgba(0,0,0,.26) !important;",
-        "  --dsw-alias-bg-layer-3: rgba(0,0,0,.30) !important;",
-        "  --dsw-alias-bg-layer-4: rgba(0,0,0,.34) !important;",
-        "  --dsw-alias-bg-module-platform: rgba(0,0,0,.22) !important;",
-        "  --dsw-alias-settings-card-fill: rgba(0,0,0,.22) !important;",
-        "  --dsw-alias-onboarding-card-fill: rgba(0,0,0,.26) !important;",
-        "  --dsw-alias-onboarding-secondary-fill: rgba(0,0,0,.18) !important;",
+        "  --dsw-alias-bg-layer-1: transparent !important;",
+        "  --dsw-alias-bg-layer-2: transparent !important;",
+        "  --dsw-alias-bg-layer-3: transparent !important;",
+        "  --dsw-alias-bg-layer-4: transparent !important;",
+        "  --dsw-alias-bg-l1: transparent !important;",
+        "  --dsw-alias-bg-l2: transparent !important;",
+        "  --dsw-alias-fill-l1: transparent !important;",
+        "  --dsw-alias-fill-l2: transparent !important;",
+        "  --dsw-alias-bg-module-platform: transparent !important;",
+        "  --dsw-alias-markdown-code-block: transparent !important;",
         "  --dsw-menu-surface-fill: rgba(22,22,26,.94) !important;",
         "  --dsw-hovercard-bg: rgba(22,22,26,.94) !important;",
         "}",
         "html.dshbg-on [class*='_frame'], html.dshbg-on [class*='_centerCol'],",
-        "html.dshbg-on [class*='_sidebarCol'],",
-        "html.dshbg-on [class*='_rightbarCol'], html.dshbg-on [class*='_bottomRow'] {",
+        "html.dshbg-on [class*='_sidebarCol'], html.dshbg-on [class*='_bottomRow'] {",
         "  background: transparent !important;",
+        "}",
+        // 右栏（代码 / diff / 预览）加一层很淡的白色蒙层：
+        // 壁纸仍然透出来，但代码区域被提亮，深色文字更清楚。
+        "html.dshbg-on [class*='_rightbarCol'] {",
+        "  background: rgba(255,255,255,.45) !important;",
         "}",
         "html.dshbg-on [class*='_frame']::before { background: transparent !important; }",
       ].join("\n");
       (document.head || document.documentElement).appendChild(st);
     }
 
-    /* ---------------- 视图判定 ---------------- */
-    // 聊天界面的特征：composer 输入区存在且可见。
-    // 设置页 / 插件市场等整页视图会隐藏或卸载 composer。
+    /* ---------------- 实色兜底（给代码预览区用） ---------------- */
+    // 在启用透明之前，先把主题原本的底色记下来，右栏代码/预览区用它做不透明背景。
+    var solidColor = null;
+    function captureSolidColor() {
+      if (solidColor) return;
+      try {
+        var cs = window.getComputedStyle(document.documentElement);
+        var v = (cs.getPropertyValue("--dsw-alias-bg-base") || "").trim();
+        if (!v || v === "transparent") {
+          v = (cs.getPropertyValue("--dsw-specific-sidebar-fill") || "").trim();
+        }
+        if (v && v !== "transparent") solidColor = v;
+      } catch (e) {}
+      if (!solidColor) solidColor = "rgba(28,28,33,.96)";
+      try {
+        document.documentElement.style.setProperty("--dshbg-solid", solidColor);
+      } catch (e) {}
+    }
+
+    /* ---------------- 视图判定 ---------------- */    // 聊天界面的特征：composer 输入区存在、可见，且**没有被其它页面盖住**。
+    // 设置页 / 插件市场等整页视图常常是覆盖层，composer 仍留在 DOM 里，
+    // 所以只判断“存在且可见”会把设置页误判成聊天界面。
     function isChatView() {
       try {
         var c = document.querySelector(
@@ -70,6 +95,28 @@ window.__ModuleLoader__.load({
         if (r.width < 60 || r.height < 10) return false;
         var cs = window.getComputedStyle(c);
         if (cs.display === "none" || cs.visibility === "hidden" || Number(cs.opacity) === 0) return false;
+
+        // 遮挡检测：输入框中心点最上层的元素，必须还是输入框自己/其子树/其祖先。
+        // 如果返回的是设置页等覆盖层，说明聊天界面已被盖住。
+        var x = Math.min(Math.max(r.left + r.width / 2, 0), (window.innerWidth || 1) - 1);
+        var y = Math.min(Math.max(r.top + r.height / 2, 0), (window.innerHeight || 1) - 1);
+        var top = document.elementFromPoint(x, y);
+        if (!top) return true; // 命中失败时按聊天处理，避免整体失效
+
+        // 正常情况：中心点落在输入框自己 / 子树 / 祖先上
+        if (top === c || c.contains(top) || top.contains(c)) return true;
+
+        // 命中底层节点（root / body / html）也算聊天：
+        // composer 外层留白区域常是 pointer-events:none，会“穿透”到下层。
+        if (top === document.body || top === document.documentElement || top.id === "root") return true;
+
+        // 只有当覆盖物是「几乎铺满视口」的整页层时，才判定不是聊天界面
+        // （设置页 / 插件市场这类覆盖层）。
+        var tr = top.getBoundingClientRect();
+        var vw = window.innerWidth || 1;
+        var vh = window.innerHeight || 1;
+        if (tr.width * tr.height >= vw * vh * 0.9) return false;
+
         return true;
       } catch (e) {
         return false;
@@ -83,51 +130,123 @@ window.__ModuleLoader__.load({
     var lastCleared = 0;
     var touched = [];
 
-    function clearBigBackgrounds() {
-      var count = 0;
+    // 主题可能在切换会话/重渲染时把背景 token 写回 root 的 inline 样式，
+    // 这里每次清理都重新断言一遍，并备份原值以便离开聊天界面时还原。
+    var ROOT_VARS = [
+      ["--dsw-alias-bg-base", "transparent"],
+      ["--dsw-specific-sidebar-fill", "transparent"],
+      ["--dsw-alias-bg-layer-1", "transparent"],
+      ["--dsw-alias-bg-layer-2", "transparent"],
+      ["--dsw-alias-bg-layer-3", "transparent"],
+      ["--dsw-alias-bg-layer-4", "transparent"],
+      ["--dsw-alias-bg-l1", "transparent"],
+      ["--dsw-alias-bg-l2", "transparent"],
+      ["--dsw-alias-fill-l1", "transparent"],
+      ["--dsw-alias-fill-l2", "transparent"],
+      ["--dsw-alias-bg-module-platform", "transparent"],
+      ["--dsw-alias-markdown-code-block", "transparent"],
+      ["--dsw-alias-settings-card-fill", "transparent"],
+      ["--dsw-alias-onboarding-card-fill", "transparent"],
+      ["--dsw-alias-onboarding-secondary-fill", "transparent"],
+      ["--dsw-menu-surface-fill", "rgba(22,22,26,.94)"],
+      ["--dsw-hovercard-bg", "rgba(22,22,26,.94)"],
+    ];
+    var rootVarBackup = null;
+
+    function varTargets() {
+      var list = [];
+      if (document.documentElement) list.push(document.documentElement);
+      if (document.body) list.push(document.body);
+      return list;
+    }
+
+    // 需要强制透明的“画布层”：主题/宿主可能在这些元素上写 inline !important 背景
+    var surfaceBackups = null;
+
+    function makeSurfaceTransparent() {
+      var els = [document.documentElement, document.body, document.getElementById("root")];
+      if (!surfaceBackups) surfaceBackups = [];
+      for (var i = 0; i < els.length; i++) {
+        var el = els[i];
+        if (!el || !el.style) continue;
+        var tag = i; // 用下标定位，元素可能被替换
+        surfaceBackups.push([
+          tag,
+          el.style.getPropertyValue("background-color"),
+          el.style.getPropertyPriority("background-color"),
+          el.style.getPropertyValue("background-image"),
+          el.style.getPropertyPriority("background-image"),
+        ]);
+        el.style.setProperty("background-color", "transparent", "important");
+        el.style.setProperty("background-image", "none", "important");
+      }
+    }
+
+    function restoreSurfaces() {
+      if (!surfaceBackups) return;
+      var els = [document.documentElement, document.body, document.getElementById("root")];
+      for (var i = 0; i < surfaceBackups.length; i++) {
+        var rec = surfaceBackups[i];
+        var el = els[rec[0]];
+        if (!el || !el.style) continue;
+        try {
+          if (rec[1]) el.style.setProperty("background-color", rec[1], rec[2] || "");
+          else el.style.removeProperty("background-color");
+          if (rec[3]) el.style.setProperty("background-image", rec[3], rec[4] || "");
+          else el.style.removeProperty("background-image");
+        } catch (e) {}
+      }
+      surfaceBackups = null;
+    }
+
+    function enforceRootVars() {
+      // 变量写在 #root 上（不是 html/body）：
+      // DSH 主题会把背景 token 以 inline !important 写在 html/body 上，
+      // 作者样式表压不过它；但主题不会去改 #root 的 inline 样式，
+      // 所以把覆盖下沉一层既生效又不会被反复改写（不会闪）。
       try {
-        // 把样式表移到 head 末尾，保证主题运行时重设 token 后仍是我们覆盖
-        var styleTag = document.getElementById(STYLE_ID);
-        if (styleTag && styleTag.parentNode) styleTag.parentNode.appendChild(styleTag);
+        var root = document.getElementById("root");
+        if (!root || !root.style) return;
+        if (!rootVarBackup) {
+          rootVarBackup = [];
+          for (var i = 0; i < ROOT_VARS.length; i++) {
+            var name = ROOT_VARS[i][0];
+            rootVarBackup.push([
+              name,
+              root.style.getPropertyValue(name),
+              root.style.getPropertyPriority(name),
+            ]);
+          }
+        }
+        for (var j = 0; j < ROOT_VARS.length; j++) {
+          root.style.setProperty(ROOT_VARS[j][0], ROOT_VARS[j][1], "important");
+        }
+        // 画布层（html/body/#root）也必须透明，否则侧栏透明后看到的是它们的底色
+        makeSurfaceTransparent();
       } catch (e) {}
+    }
+
+    function restoreRootVars() {
+      restoreSurfaces();
+      if (!rootVarBackup) return;
       try {
-        var vw = window.innerWidth || 1;
-        var vh = window.innerHeight || 1;
-        var all = document.querySelectorAll("#root, body *");
-        for (var i = 0; i < all.length; i++) {
-          var n = all[i];
-          if (n.id === LAYER_ID || n.id === UI_ID) continue;
-          // 跳过背景层（含遮罩）与设置面板内部的元素，否则会把遮罩清掉
-          try {
-            if (n.closest && (n.closest("#" + LAYER_ID) || n.closest("#" + UI_ID))) continue;
-          } catch (e2) {}
-          if (n.__dshbgTouched) continue;
-          // 先量尺寸，再取计算样式：小元素直接跳过，避免对上千节点做 getComputedStyle
-          var r = n.getBoundingClientRect();
-          if (r.width <= 0 || r.height <= 0) continue;
-          if (r.width * r.height < vw * vh * 0.12) continue;
-          var cs = window.getComputedStyle(n);
-          var bgc = cs.backgroundColor;
-          var bgi = cs.backgroundImage;
-          var hasOpaque = bgc && bgc !== "transparent" && bgc !== "rgba(0, 0, 0, 0)";
-          var hasImage = bgi && bgi !== "none";
-          if (!hasOpaque && !hasImage) continue;
-          var rec = {
-            el: n,
-            bgColor: n.style.getPropertyValue("background-color"),
-            bgPriority: n.style.getPropertyPriority("background-color"),
-            bgImage: n.style.getPropertyValue("background-image"),
-            bgImagePriority: n.style.getPropertyPriority("background-image"),
-          };
-          n.__dshbgTouched = true;
-          touched.push(rec);
-          n.style.setProperty("background-color", "transparent", "important");
-          if (hasImage) n.style.setProperty("background-image", "none", "important");
-          count++;
+        var root = document.getElementById("root");
+        if (root && root.style) {
+          for (var i = 0; i < rootVarBackup.length; i++) {
+            var rec = rootVarBackup[i];
+            if (rec[1]) root.style.setProperty(rec[0], rec[1], rec[2] || "");
+            else root.style.removeProperty(rec[0]);
+          }
         }
       } catch (e) {}
-      lastCleared = count;
-      return count;
+      rootVarBackup = null;
+    }
+
+    function clearBigBackgrounds() {
+      // 现在只让侧边栏透明，聊天区保持原生背景，
+      // 所以不再自动清除大面积容器，避免把聊天区也清空。
+      lastCleared = 0;
+      return 0;
     }
 
     function restoreBackgrounds() {
@@ -145,22 +264,47 @@ window.__ModuleLoader__.load({
       }
       touched = [];
       lastCleared = 0;
+      restoreRootVars();
     }
 
     var modeOn = false;
-    function syncMode(force) {
-      var chat = isChatView();
-      if (chat === modeOn && !force) return;
+    var chatHits = 0;
+    var nonChatHits = 0;
+
+    function applyMode(chat) {
+      if (chat === modeOn) {
+        if (chat) clearBigBackgrounds();
+        return;
+      }
       modeOn = chat;
       try {
         document.documentElement.classList.toggle("dshbg-on", chat);
       } catch (e) {}
       if (chat) {
+        enforceRootVars();
         clearBigBackgrounds();
       } else {
         // 离开聊天界面：还原所有被改过的容器（设置页保持 DSH 原样）
         restoreBackgrounds();
+        restoreRootVars();
       }
+    }
+
+    // 视图判定带滞后：进入聊天要连续 2 次命中，离开要连续 3 次，
+    // 避免覆盖层动画/浮层导致 true/false 抖动，从而反复透明/还原。
+    function syncMode(force) {
+      var chat = isChatView();
+      if (force) {
+        chatHits = 0;
+        nonChatHits = 0;
+        applyMode(chat);
+        return;
+      }
+      if (chat) { chatHits++; nonChatHits = 0; }
+      else { nonChatHits++; chatHits = 0; }
+      if (!modeOn && chatHits >= 2) applyMode(true);
+      else if (modeOn && nonChatHits >= 3) applyMode(false);
+      else if (modeOn) clearBigBackgrounds();
     }
 
     var observer = null;
@@ -169,8 +313,9 @@ window.__ModuleLoader__.load({
       if (syncTimer) return;
       syncTimer = setTimeout(function () {
         syncTimer = 0;
-        syncMode();
-      }, 250);
+        // 用带滞后的判定，避免覆盖层/浮层让视图判定抖动
+        syncMode(false);
+      }, 300);
     }
     function watchView() {
       if (observer) return;
@@ -322,8 +467,8 @@ window.__ModuleLoader__.load({
       return n;
     }
     var BTN = {
-      padding: "5px 10px", borderRadius: "7px", border: "1px solid #3a3a42",
-      background: "#26262c", color: "#ddd", cursor: "pointer", fontSize: "12px",
+      padding: "5px 10px", borderRadius: "7px", border: "1px solid #dcdce4",
+      background: "#f4f4f7", color: "#333338", cursor: "pointer", fontSize: "12px",
     };
     var ROW = { display: "flex", alignItems: "center", gap: "8px", margin: "9px 0" };
 
@@ -355,6 +500,9 @@ window.__ModuleLoader__.load({
         parts.push("视频层：未挂载");
       }
       parts.push("已透明化：" + lastCleared + " 块");
+      var cls = false;
+      try { cls = document.documentElement.classList.contains("dshbg-on"); } catch (e) {}
+      parts.push("壁纸模式：" + (cls ? "开" : "关") + "（判定 " + (modeOn ? "聊天" : "非聊天") + "）");
       box.textContent = parts.join(" · ");
     }
 
@@ -370,7 +518,7 @@ window.__ModuleLoader__.load({
       items.forEach(function (it) {
         var row = el("div", {
           display: "flex", alignItems: "center", gap: "8px",
-          padding: "6px 0", borderBottom: "1px solid #26262c",
+          padding: "6px 0", borderBottom: "1px solid #ececf1",
         });
         var radio = el("input");
         radio.type = "radio";
@@ -421,10 +569,10 @@ window.__ModuleLoader__.load({
     function buildPanel() {
       var box = el("div", {
         position: "fixed", right: "16px", bottom: "16px", width: "360px",
-        maxHeight: "76vh", overflowY: "auto", background: "#1b1b20",
-        color: "#e4e4e4", border: "1px solid #34343c", borderRadius: "12px",
+        maxHeight: "76vh", overflowY: "auto", background: "#ffffff",
+        color: "#22222a", border: "1px solid #e3e3ea", borderRadius: "12px",
         padding: "16px", zIndex: "2147483001",
-        boxShadow: "0 12px 40px rgba(0,0,0,.55)",
+        boxShadow: "0 12px 40px rgba(0,0,0,.18)",
         font: "13px/1.65 system-ui,-apple-system,'Segoe UI',sans-serif",
       });
 
@@ -483,8 +631,8 @@ window.__ModuleLoader__.load({
       var fitRow = el("div", ROW);
       fitRow.appendChild(el("span", null, "填充"));
       var fitSel = el("select", {
-        flex: "1", padding: "6px", background: "#111", color: "#e4e4e4",
-        border: "1px solid #3a3a42", borderRadius: "6px",
+        flex: "1", padding: "6px", background: "#ffffff", color: "#22222a",
+        border: "1px solid #dcdce4", borderRadius: "6px",
       });
       [["cover", "填充（裁剪边缘）"], ["contain", "完整显示"], ["fill", "拉伸填满"]].forEach(function (p) {
         var o = document.createElement("option");
@@ -528,14 +676,14 @@ window.__ModuleLoader__.load({
       box.appendChild(scrimRow);
 
       var listBox = el("div", {
-        marginTop: "10px", borderTop: "1px solid #34343c", paddingTop: "6px",
+        marginTop: "10px", borderTop: "1px solid #ececf1", paddingTop: "6px",
       });
       listBox.setAttribute("data-role", "list");
       box.appendChild(listBox);
 
       var status = el("div", {
         marginTop: "10px", padding: "8px", borderRadius: "6px",
-        background: "#141418", color: "#9cc", fontSize: "11.5px",
+        background: "#f6f6f9", color: "#5a6472", fontSize: "11.5px",
         lineHeight: "1.5", wordBreak: "break-all",
       });
       status.setAttribute("data-role", "status");
@@ -551,7 +699,7 @@ window.__ModuleLoader__.load({
       });
       box.appendChild(reapply);
 
-      msgEl = el("div", { marginTop: "8px", opacity: "0.85", color: "#8fd" });
+      msgEl = el("div", { marginTop: "8px", opacity: "0.9", color: "#2f7d32" });
       box.appendChild(msgEl);
 
       return box;
@@ -580,8 +728,8 @@ window.__ModuleLoader__.load({
       var btn = el("button", {
         position: "fixed", left: "12px", bottom: "12px", zIndex: "2147483002",
         width: "34px", height: "34px", borderRadius: "50%",
-        border: "1px solid #3a3a42", background: "rgba(28,28,33,.88)",
-        color: "#c9c9c9", cursor: "grab", fontSize: "15px",
+        border: "1px solid #dcdce4", background: "rgba(255,255,255,.92)",
+        color: "#55555f", cursor: "grab", fontSize: "15px",
         display: "flex", alignItems: "center", justifyContent: "center",
         opacity: "0.45", transition: "opacity .15s",
         userSelect: "none", touchAction: "none",
@@ -656,12 +804,15 @@ window.__ModuleLoader__.load({
 
     function boot() {
       try {
+        // 先确保处于未启用状态，才能读到主题原本的底色
+        try { document.documentElement.classList.remove("dshbg-on"); } catch (e) {}
+        captureSolidColor();
         injectStyle();
         mountUi();
         watchView();
         syncMode(true);
         refresh().then(function () { return applyMeta(meta); }).then(function () {
-          // SPA 重新渲染后补几次，避免框架重置背景
+          // SPA 重新渲染后补几次；这里用 force 是首次/兜底，不参与滞后计数
           setTimeout(function () { syncMode(true); renderStatus(); }, 300);
           setTimeout(function () { syncMode(true); }, 1200);
           setTimeout(function () { syncMode(true); renderStatus(); }, 2500);
