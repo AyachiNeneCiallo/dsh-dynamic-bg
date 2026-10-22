@@ -630,6 +630,7 @@ window.__ModuleLoader__.load({
       var dir = rec.dir;
       sceneStatus = { ok: false, text: "载入中…", width: 0, height: 0 };
       stopScene();
+      var fetched = null;   // 降级时复用已拿到的场景描述，避免再打一次 /scene
 
       return fetch(weUrl("scene", { dir: dir }))
         .then(function (res) {
@@ -639,6 +640,7 @@ window.__ModuleLoader__.load({
           });
         })
         .then(function (graph) {
+          fetched = graph;
           if (!graph.layers || graph.layers.length === 0) throw new Error("这个场景里没有可渲染的图层");
           var host = ensureLayer();
           var canvas = document.createElement("canvas");
@@ -849,19 +851,15 @@ window.__ModuleLoader__.load({
         .catch(function (e) {
           sceneStatus = { ok: false, text: String((e && e.message) || e), width: 0, height: 0 };
           // 兜底：WebGL 不可用/解析失败时，至少把壁纸自带动图铺上
-          mountPreviewImage(m, rec);
+          mountPreviewImage(m, rec, fetched);
         });
     }
 
     /** 渲染失败时的降级路径：优先用场景底图（通常是 4K PNG），再退回壁纸自带的预览图。 */
-    function mountPreviewImage(m, rec) {
-      fetch(weUrl("scene", { dir: rec.dir }))
-        .then(function (r) { return r.ok ? r.json() : null; })
-        .catch(function () { return null; })
-        .then(function (graph) {
-          var first = graph && graph.layers && graph.layers[0];
-          drawStaticLayer(m, rec, first ? weUrl("asset", { dir: rec.dir, name: first.texture }) : null);
-        });
+    function mountPreviewImage(m, rec, graph) {
+      // /scene 没拿到时也没有底图名，直接用 preview.gif；两者都没有就由 drawStaticLayer 收尾
+      var first = graph && graph.layers && graph.layers[0];
+      drawStaticLayer(m, rec, first ? weUrl("asset", { dir: rec.dir, name: first.texture }) : null);
     }
 
     function drawStaticLayer(m, rec, src) {
@@ -873,12 +871,19 @@ window.__ModuleLoader__.load({
       s.width = "100%"; s.height = "100%";
       s.objectFit = m.fit || "cover";
       s.opacity = String(m.opacity == null ? 1 : m.opacity);
-      // 底图可能是压缩纹理（浏览器无法直接显示），那就换回预览图
+      // 底图可能是压缩纹理（浏览器无法直接显示），那就换回预览图；
+      // 两张都加载不了说明目录已被删除/移走，直接收掉图层，别在界面上留个破图
       img.addEventListener("error", function () {
+        if (!img.parentNode) return;   // 已经被别的壁纸替换掉了，别去动当前背景
         if (img.getAttribute("data-retry") !== "1") {
           img.setAttribute("data-retry", "1");
           img.src = weUrl("preview", { dir: rec.dir });
+          return;
         }
+        sceneStatus = { ok: false, text: "壁纸文件已失效（目录可能已被删除或移动）", width: 0, height: 0 };
+        removeLayer();
+        try { setMsg("壁纸文件已失效，已清除背景：" + (rec.title || rec.dir)); } catch (e) {}
+        renderStatus();
       });
       img.src = src || weUrl("preview", { dir: rec.dir });
       host.appendChild(img);
