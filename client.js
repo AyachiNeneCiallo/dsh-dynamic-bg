@@ -250,15 +250,42 @@ window.__ModuleLoader__.load({
       return isNaN(a) ? 1 : a;
     }
 
-    /** 不该被清掉的东西：交互控件、媒体、输入区，以及插件自己的图层。 */
+    function parseRgb(color) {
+      if (!color) return null;
+      var m = /rgba?\(([^)]+)\)/.exec(color);
+      if (!m) return null;
+      var p = m[1].split(",");
+      var r = parseFloat(p[0]), g = parseFloat(p[1]), b = parseFloat(p[2]);
+      var a = p.length > 3 ? parseFloat(p[3]) : 1;
+      return { r: r, g: g, b: b, a: isNaN(a) ? 1 : a };
+    }
+
+    /** 灰白色（含半透明灰）→ 可以清；彩色（品牌色、状态色）→ 保留，避免按钮图标失去对比。 */
+    function isNeutralColor(color) {
+      var c = parseRgb(color);
+      if (!c) return false;
+      var mx = Math.max(c.r, c.g, c.b);
+      var mn = Math.min(c.r, c.g, c.b);
+      return (mx - mn) <= 40;
+    }
+
+    /** 按钮 / 标签 / 菜单项这类小块交互控件。 */
+    function isControlEl(el) {
+      var tag = el.tagName;
+      if (tag === "BUTTON" || tag === "SUMMARY") return true;
+      var role = el.getAttribute && el.getAttribute("role");
+      return !!(role && /^(button|tab|menuitem|menuitemradio|option|switch|checkbox|radio|link|toolbar)$/.test(role));
+    }
+
+    /** 不该被清掉的东西：输入区、媒体内容，以及插件自己的图层。 */
     function isProtectedEl(el) {
       var tag = el.tagName;
-      if (tag === "BUTTON" || tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" ||
-          tag === "OPTION" || tag === "IMG" || tag === "VIDEO" || tag === "CANVAS" ||
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "OPTION" ||
+          tag === "IMG" || tag === "VIDEO" || tag === "CANVAS" ||
           tag === "SVG" || tag === "PATH" || tag === "IFRAME") return true;
       if (el.isContentEditable) return true;
       var role = el.getAttribute && el.getAttribute("role");
-      if (role && /button|checkbox|switch|tab|menuitem|option|slider|radio|dialog|tooltip/.test(role)) return true;
+      if (role && /slider|dialog|tooltip/.test(role)) return true;
       if (el.closest) {
         if (el.closest("#" + LAYER_ID) || el.closest("#" + UI_ID)) return true;
         // 真正的输入控件区域保留，避免把光标所在的可编辑区弄透
@@ -330,23 +357,41 @@ window.__ModuleLoader__.load({
 
       var vw = window.innerWidth || 1280;
       var vh = window.innerHeight || 800;
-      var minArea = vw * vh * (meta.clearMinArea == null ? 0.01 : meta.clearMinArea);
+      // 面板类：面积够大就要清（半透明蒙层另算）
+      var surfaceMin = Math.max(2500, vw * vh * (meta.clearMinArea == null ? 0.003 : meta.clearMinArea));
+      // 控件类：按钮/标签本来就小，门槛另设；只清灰白色的，彩色按钮（主操作、发送键）保留
+      var controlMin = 900;
       var all = root.getElementsByTagName("*");
       var limit = Math.min(all.length, 6000);
       for (var i = 0; i < limit; i += 1) {
         var el = all[i];
         if (clearedSet && clearedSet.has(el)) continue;
         if (isProtectedEl(el)) continue;
+
+        var ctl = isControlEl(el);
+        if (ctl && meta.clearControls === false) continue;
+
         var w = el.offsetWidth;
         var h = el.offsetHeight;
-        if (w < 40 || h < 24 || w * h < minArea) continue;
+        if (ctl) {
+          if (w < 16 || h < 12 || w * h < controlMin) continue;
+        } else if (w < 40 || h < 24 || w * h < surfaceMin) {
+          continue;
+        }
+
         var cs;
         try { cs = window.getComputedStyle(el); } catch (e) { continue; }
         if (cs.visibility === "hidden" || cs.display === "none") continue;
         if (Number(cs.opacity) === 0) continue;
+
         var a = alphaOf(cs.backgroundColor);
         var grad = /gradient/.test(cs.backgroundImage);
-        if (a <= 0.5 && !grad) continue;   // 半透明蒙层（比如右栏 45%）保留
+        if (ctl) {
+          if (a < 0.05 && !grad) continue;              // 本来就是透明的控件
+          if (!isNeutralColor(cs.backgroundColor)) continue;   // 彩色按钮保留
+        } else if (a <= 0.5 && !grad) {
+          continue;                                      // 半透明蒙层（比如右栏 45%）保留
+        }
         clearOne(el, cs);
       }
       lastCleared = clearedEls.length;
@@ -1054,7 +1099,7 @@ window.__ModuleLoader__.load({
     }
 
     /* ---------------- UI ---------------- */
-    var meta = { activeKey: "", fit: "cover", opacity: 1, scrim: 0.35, enabled: true, effectStrength: 1, autoClear: true };
+    var meta = { activeKey: "", fit: "cover", opacity: 1, scrim: 0.35, enabled: true, effectStrength: 1, autoClear: true, clearControls: true };
     var items = [];
     var panel = null;
     var msgEl = null;
@@ -1177,6 +1222,7 @@ window.__ModuleLoader__.load({
           meta.enabled = m.enabled !== false;
           meta.effectStrength = m.effectStrength == null ? 1 : m.effectStrength;
           meta.autoClear = m.autoClear !== false;
+          meta.clearControls = m.clearControls !== false;
         }
       }).catch(function (e) {
         setMsg("读取失败：" + String((e && e.message) || e));
@@ -1344,9 +1390,28 @@ window.__ModuleLoader__.load({
       });
       acRow.appendChild(ac);
       var acLabel = el("span", null, "深度透明（清掉残留的不透明面板）");
-      acLabel.title = "按「面积 + 计算背景」判定，自动把按钮组/卡片/标题条之类的实心底色清成透明；输入框会改成毛玻璃";
+      acLabel.title = "按「面积 + 计算背景」判定，自动把卡片、标题条、工具条底板之类的实心底色清成透明；输入框会改成毛玻璃";
       acRow.appendChild(acLabel);
       box.appendChild(acRow);
+
+      // 子选项：按钮 / 标签也透明（只清灰白色的，彩色主按钮保留）
+      var ccRow = el("div", ROW);
+      ccRow.style.paddingLeft = "22px";
+      ccRow.style.marginTop = "-4px";
+      var cc = el("input");
+      cc.type = "checkbox";
+      cc.checked = meta.clearControls !== false;
+      cc.addEventListener("change", function () {
+        saveMeta({ clearControls: cc.checked }).then(function () {
+          renderStatus();
+          setMsg(cc.checked ? "按钮/标签也会透明化（彩色按钮保留）" : "按钮/标签恢复原样");
+        });
+      });
+      ccRow.appendChild(cc);
+      var ccLabel = el("span", { opacity: "0.85" }, "按钮、标签也透明");
+      ccLabel.title = "只清灰白色的控件底色；蓝色主按钮、发送键这类彩色按钮会保留";
+      ccRow.appendChild(ccLabel);
+      box.appendChild(ccRow);
 
       var fitRow = el("div", ROW);
       fitRow.appendChild(el("span", null, "填充"));

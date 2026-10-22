@@ -60,8 +60,11 @@ dsh plugin --profile web add github:AyachiNeneCiallo/dsh-dynamic-bg
 5. 面板底部状态行会显示：启用状态、视频是否挂载、分辨率、能否播放、壁纸模式判定
 
 > **深度透明（默认开启）**：会周期性清扫面积够大、背景不透明的面板，把它们清成透明；
-> 交互控件（按钮 / 输入框 / 下拉）不动，右栏那层 45% 蒙层保留，普通输入框改成毛玻璃。
-> 不想要就取消勾选，被清过的底色会完整还原。
+> 右栏那层 45% 蒙层保留，普通输入框改成毛玻璃。
+>
+> 下面的子选项 **「按钮、标签也透明」**（默认开启）会进一步把按钮 / 标签 / 菜单项的灰白底色
+> （含 50% 灰的工具条填充）也清掉；**彩色按钮保留**（蓝色主按钮、发送键这类），否则图标会失去对比度。
+> 右侧输入区与媒体元素始终不动。不想要就取消勾选，被清过的底色会完整还原。
 >
 > 注：**右上角约 42px 的窗口按钮区无法透明化**——那是 Electron 的原生标题栏叠加
 > （`titleBarOverlay` + `backgroundMaterial: acrylic`），不在网页 DOM 内，任何 CSS 都碰不到它。
@@ -85,6 +88,7 @@ dsh plugin --profile web add github:AyachiNeneCiallo/dsh-dynamic-bg
 | `scrim` | 白色遮罩强度 0–0.9 | `0.35` |
 | `effectStrength` | 场景动效强度 0–3 | `1` |
 | `autoClear` | 深度透明：清掉残留的不透明面板 | `true` |
+| `clearControls` | 深度透明的子项：按钮/标签的灰白底色也清掉（彩色按钮保留） | `true` |
 
 设置保存在浏览器 IndexedDB 的 `dsh-dynamic-bg` 数据库中。
 
