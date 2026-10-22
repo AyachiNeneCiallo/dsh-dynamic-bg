@@ -59,6 +59,13 @@ window.__ModuleLoader__.load({
         "  background: rgba(255,255,255,.45) !important;",
         "}",
         "html.dshbg-on [class*='_frame']::before { background: transparent !important; }",
+        // 右上角窗口按钮区：预加载脚本会在 body 上插一个探针 span，读它的 computed
+        // background-color 再通过 IPC 推给主进程当标题栏遮罩色。探针在 #root 之外，
+        // 继承的是 body 上的主题变量，所以要把这个 span 单独打透明——主进程收到
+        // rgba(0,0,0,0) 后标题栏就跟壁纸通了。
+        "html.dshbg-on body > span[style*='--dsw-specific-sidebar-fill'] {",
+        "  background-color: rgba(0,0,0,0) !important;",
+        "}",
         // 深度透明开启时，输入框改成毛玻璃：透出壁纸又不影响打字可读性
         "html.dshbg-on.dshbg-clear [data-composer-card] {",
         "  background: rgba(255,255,255,.38) !important;",
@@ -67,6 +74,21 @@ window.__ModuleLoader__.load({
         "}",
       ].join("\n");
       (document.head || document.documentElement).appendChild(st);
+    }
+
+    /**
+     * 戳一下预加载脚本的观察器：它只在 head 变动 / body 属性变动时重新量标题栏颜色，
+     * 我们改了 class 或探针样式之后主动触发一次，让主进程收到新的遮罩色。
+     */
+    function pokeCaptionProbe() {
+      try {
+        var head = document.head || document.documentElement;
+        if (!head) return;
+        var s = document.createElement("style");
+        s.setAttribute("data-dshbg-poke", "1");
+        head.appendChild(s);
+        s.parentNode && s.parentNode.removeChild(s);
+      } catch (e) {}
     }
 
     /* ---------------- 实色兜底（给代码预览区用） ---------------- */
@@ -475,6 +497,8 @@ window.__ModuleLoader__.load({
         restoreBackgrounds();
         restoreRootVars();
       }
+      // 标题栏遮罩色是预加载脚本量出来的，改完要主动戳一次才会重推
+      pokeCaptionProbe();
     }
 
     // 视图判定带滞后：进入聊天要连续 2 次命中，离开要连续 3 次，

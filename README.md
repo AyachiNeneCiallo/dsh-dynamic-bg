@@ -70,8 +70,16 @@ dsh plugin --profile web add github:AyachiNeneCiallo/dsh-dynamic-bg
 > 等 token 把底色清空，但保留那圈 0.5px 描边，所以仍然看得出哪段是代码；
 > 非 token 驱动的小药丸由清扫器按「行内元素 + 面积 ≥ 300px²」补清。
 >
-> 注：**右上角约 42px 的窗口按钮区无法透明化**——那是 Electron 的原生标题栏叠加
-> （`titleBarOverlay` + `backgroundMaterial: acrylic`），不在网页 DOM 内，任何 CSS 都碰不到它。
+> **右上角 40px 的窗口按钮区**也能一起透明化，但走的是另一条链路：桌面端预加载脚本会在
+> `body` 上插一个隐藏的探针 `span`（背景取 `--dsw-specific-sidebar-fill`），读它的
+> computed 颜色后通过 `dsh-desktop:windows-appearance` IPC 推给主进程，主进程再调用
+> `setTitleBarOverlay({ color })`。插件把这个探针单独打透明，主进程就会收到
+> `rgba(0, 0, 0, 0)`，标题栏随之让出壁纸；改完还会往 `head` 里戳一个空 `<style>`，
+> 触发预加载脚本的 MutationObserver 立即重推。离开聊天界面时探针恢复原色。
+>
+> 注意：探针在 `#root` 之外，继承的是 `body` 上的主题变量，所以只覆盖 `#root` 的 token
+> 是没用的——必须直接命中这个 `span`。另外该效果依赖 Windows 端接受带 alpha 的
+> `titleBarOverlay` 颜色；若某些系统版本忽略 alpha，则标题栏保持原样（不影响其它部分）。
 
 ### 用 Wallpaper Engine 壁纸
 
