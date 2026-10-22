@@ -1,6 +1,6 @@
 {
   "name": "dsh-dynamic-bg",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "DSH 动态壁纸插件：把本地视频作为 DeepSeek Harness 聊天界面的全屏动态背景",
   "type": "module",
   "main": "lib/index.js",
