@@ -66,6 +66,10 @@ dsh plugin --profile web add github:AyachiNeneCiallo/dsh-dynamic-bg
 > （含 50% 灰的工具条填充）也清掉；**彩色按钮保留**（蓝色主按钮、发送键这类），否则图标会失去对比度。
 > 右侧输入区与媒体元素始终不动。不想要就取消勾选，被清过的底色会完整还原。
 >
+> **行内代码 / 标签这类小药丸**走的是另一条路：直接覆盖 `--dsw-alias-markdown-inline-code`
+> 等 token 把底色清空，但保留那圈 0.5px 描边，所以仍然看得出哪段是代码；
+> 非 token 驱动的小药丸由清扫器按「行内元素 + 面积 ≥ 300px²」补清。
+>
 > 注：**右上角约 42px 的窗口按钮区无法透明化**——那是 Electron 的原生标题栏叠加
 > （`titleBarOverlay` + `backgroundMaterial: acrylic`），不在网页 DOM 内，任何 CSS 都碰不到它。
 

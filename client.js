@@ -133,6 +133,11 @@ window.__ModuleLoader__.load({
       ["--dsw-alias-fill-l2", "transparent"],
       ["--dsw-alias-bg-module-platform", "transparent"],
       ["--dsw-alias-markdown-code-block", "transparent"],
+      // 行内代码/标签这类小药丸：底色清掉但保留那圈 0.5px 描边，仍然看得出是代码
+      ["--dsw-alias-markdown-inline-code", "transparent"],
+      ["--dsw-alias-markdown-code-block-banner", "rgba(255,255,255,.16)"],
+      ["--dsw-alias-markdown-tag", "rgba(255,255,255,.22)"],
+      ["--dsw-alias-menu-group-header-fill", "rgba(255,255,255,.22)"],
       ["--dsw-alias-settings-card-fill", "transparent"],
       ["--dsw-alias-onboarding-card-fill", "transparent"],
       ["--dsw-alias-onboarding-secondary-fill", "transparent"],
@@ -361,6 +366,8 @@ window.__ModuleLoader__.load({
       var surfaceMin = Math.max(2500, vw * vh * (meta.clearMinArea == null ? 0.003 : meta.clearMinArea));
       // 控件类：按钮/标签本来就小，门槛另设；只清灰白色的，彩色按钮（主操作、发送键）保留
       var controlMin = 900;
+      // 行内小药丸（行内代码、标签）：面积可以更小
+      var chipMin = 300;
       var all = root.getElementsByTagName("*");
       var limit = Math.min(all.length, 6000);
       for (var i = 0; i < limit; i += 1) {
@@ -373,24 +380,29 @@ window.__ModuleLoader__.load({
 
         var w = el.offsetWidth;
         var h = el.offsetHeight;
-        if (ctl) {
-          if (w < 16 || h < 12 || w * h < controlMin) continue;
-        } else if (w < 40 || h < 24 || w * h < surfaceMin) {
-          continue;
-        }
+        if (w < 16 || h < 12) continue;
+        var area = w * h;
+        if (area < chipMin) continue;
 
         var cs;
         try { cs = window.getComputedStyle(el); } catch (e) { continue; }
         if (cs.visibility === "hidden" || cs.display === "none") continue;
         if (Number(cs.opacity) === 0) continue;
 
+        var inline = cs.display === "inline" || cs.display === "inline-flex" || cs.display === "inline-block";
         var a = alphaOf(cs.backgroundColor);
         var grad = /gradient/.test(cs.backgroundImage);
+
         if (ctl) {
-          if (a < 0.05 && !grad) continue;              // 本来就是透明的控件
-          if (!isNeutralColor(cs.backgroundColor)) continue;   // 彩色按钮保留
-        } else if (a <= 0.5 && !grad) {
-          continue;                                      // 半透明蒙层（比如右栏 45%）保留
+          if (area < controlMin) continue;
+          if (a < 0.05 && !grad) continue;                     // 本来就透明的控件
+          if (!isNeutralColor(cs.backgroundColor)) continue;    // 彩色按钮保留
+        } else if (inline) {
+          // 行内代码 / 标签这类小药丸：只要底色不透明就清掉
+          if (a <= 0.5 && !grad) continue;
+        } else {
+          if (area < surfaceMin) continue;                      // 块级的小块不动
+          if (a <= 0.5 && !grad) continue;                      // 半透明蒙层（比如右栏 45%）保留
         }
         clearOne(el, cs);
       }
