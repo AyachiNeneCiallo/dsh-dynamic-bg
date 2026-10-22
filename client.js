@@ -59,6 +59,12 @@ window.__ModuleLoader__.load({
         "  background: rgba(255,255,255,.45) !important;",
         "}",
         "html.dshbg-on [class*='_frame']::before { background: transparent !important; }",
+        // 深度透明开启时，输入框改成毛玻璃：透出壁纸又不影响打字可读性
+        "html.dshbg-on.dshbg-clear [data-composer-card] {",
+        "  background: rgba(255,255,255,.38) !important;",
+        "  backdrop-filter: blur(14px) saturate(1.15) !important;",
+        "  -webkit-backdrop-filter: blur(14px) saturate(1.15) !important;",
+        "}",
       ].join("\n");
       (document.head || document.documentElement).appendChild(st);
     }
@@ -224,11 +230,151 @@ window.__ModuleLoader__.load({
       rootVarBackup = null;
     }
 
-    function clearBigBackgrounds() {
-      // 现在只让侧边栏透明，聊天区保持原生背景，
-      // 所以不再自动清除大面积容器，避免把聊天区也清空。
+    /* ---- 深度透明：把仍然不透明、面积够大的面板底色清掉 ----
+     * 只靠 CSS 变量和固定选择器，覆盖不到按钮组、卡片、标题条这类组件，
+     * 而 DSH 改版后类名还会变。这里改成运行时按「计算样式 + 面积」判定，
+     * 只要够大且不透明就清掉，并记录原值以便随时还原。
+     */
+    var clearedEls = [];
+    var clearedSet = typeof WeakSet === "function" ? new WeakSet() : null;
+    var sweepTimer = 0;
+
+    /** 解析 rgb()/rgba() 的 alpha；非 rgba 视为不透明。 */
+    function alphaOf(color) {
+      if (!color || color === "transparent") return 0;
+      var m = /rgba?\(([^)]+)\)/.exec(color);
+      if (!m) return 1;
+      var parts = m[1].split(",");
+      if (parts.length < 4) return 1;
+      var a = parseFloat(parts[3]);
+      return isNaN(a) ? 1 : a;
+    }
+
+    /** 不该被清掉的东西：交互控件、媒体、输入区，以及插件自己的图层。 */
+    function isProtectedEl(el) {
+      var tag = el.tagName;
+      if (tag === "BUTTON" || tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" ||
+          tag === "OPTION" || tag === "IMG" || tag === "VIDEO" || tag === "CANVAS" ||
+          tag === "SVG" || tag === "PATH" || tag === "IFRAME") return true;
+      if (el.isContentEditable) return true;
+      var role = el.getAttribute && el.getAttribute("role");
+      if (role && /button|checkbox|switch|tab|menuitem|option|slider|radio|dialog|tooltip/.test(role)) return true;
+      if (el.closest) {
+        if (el.closest("#" + LAYER_ID) || el.closest("#" + UI_ID)) return true;
+        // 真正的输入控件区域保留，避免把光标所在的可编辑区弄透
+        if (el.closest("[data-composer-input],[data-composer-seat]")) return true;
+      }
+      return false;
+    }
+
+    function clearOne(el, cs) {
+      try {
+        var rec = {
+          el: el,
+          bg: el.style.getPropertyValue("background-color"),
+          bgPri: el.style.getPropertyPriority("background-color"),
+          img: el.style.getPropertyValue("background-image"),
+          imgPri: el.style.getPropertyPriority("background-image"),
+          hadGradient: /gradient/.test(cs.backgroundImage),
+        };
+        el.style.setProperty("background-color", "transparent", "important");
+        if (rec.hadGradient) el.style.setProperty("background-image", "none", "important");
+        clearedEls.push(rec);
+        if (clearedSet) clearedSet.add(el);
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+
+    function restoreCleared() {
+      for (var i = 0; i < clearedEls.length; i++) {
+        var rec = clearedEls[i];
+        try {
+          var el = rec.el;
+          if (!el || !el.style) continue;
+          if (rec.bg) el.style.setProperty("background-color", rec.bg, rec.bgPri || "");
+          else el.style.removeProperty("background-color");
+          if (rec.hadGradient) {
+            if (rec.img) el.style.setProperty("background-image", rec.img, rec.imgPri || "");
+            else el.style.removeProperty("background-image");
+          }
+        } catch (e) {}
+      }
+      clearedEls = [];
+      clearedSet = typeof WeakSet === "function" ? new WeakSet() : null;
       lastCleared = 0;
-      return 0;
+    }
+
+    function sweepOpaque() {
+      if (!meta.autoClear) return;
+      var on = false;
+      try { on = document.documentElement.classList.contains("dshbg-on"); } catch (e) { on = true; }
+      if (!on) return;
+      var root = document.getElementById("root");
+      if (!root) return;
+
+      // 先维护已清理过的元素：React 重渲染可能把背景写回来，补一次即可
+      var alive = [];
+      for (var j = 0; j < clearedEls.length; j++) {
+        var rec = clearedEls[j];
+        try {
+          if (!rec.el || !rec.el.isConnected) continue;
+          if (rec.el.style.getPropertyValue("background-color") !== "transparent") {
+            rec.el.style.setProperty("background-color", "transparent", "important");
+          }
+          alive.push(rec);
+        } catch (e) {}
+      }
+      clearedEls = alive;
+
+      var vw = window.innerWidth || 1280;
+      var vh = window.innerHeight || 800;
+      var minArea = vw * vh * (meta.clearMinArea == null ? 0.01 : meta.clearMinArea);
+      var all = root.getElementsByTagName("*");
+      var limit = Math.min(all.length, 6000);
+      for (var i = 0; i < limit; i += 1) {
+        var el = all[i];
+        if (clearedSet && clearedSet.has(el)) continue;
+        if (isProtectedEl(el)) continue;
+        var w = el.offsetWidth;
+        var h = el.offsetHeight;
+        if (w < 40 || h < 24 || w * h < minArea) continue;
+        var cs;
+        try { cs = window.getComputedStyle(el); } catch (e) { continue; }
+        if (cs.visibility === "hidden" || cs.display === "none") continue;
+        if (Number(cs.opacity) === 0) continue;
+        var a = alphaOf(cs.backgroundColor);
+        var grad = /gradient/.test(cs.backgroundImage);
+        if (a <= 0.5 && !grad) continue;   // 半透明蒙层（比如右栏 45%）保留
+        clearOne(el, cs);
+      }
+      lastCleared = clearedEls.length;
+    }
+
+    function scheduleSweep() {
+      if (!meta.autoClear) return;
+      if (sweepTimer) return;
+      sweepTimer = setTimeout(function () {
+        sweepTimer = 0;
+        sweepOpaque();
+      }, 400);
+    }
+
+    function clearBigBackgrounds() {
+      // 由 CSS 变量 + 下面的运行时清扫共同完成，这里只负责触发
+      scheduleSweep();
+      return lastCleared;
+    }
+
+    /** 深度透明开关变化时立即生效：开 → 清一遍；关 → 全部还原。 */
+    function applyClearMode() {
+      var on = meta.autoClear !== false;
+      try {
+        document.documentElement.classList.toggle("dshbg-clear", modeOn && on);
+      } catch (e) {}
+      if (!on) restoreCleared();
+      else if (modeOn) sweepOpaque();
     }
 
     function restoreBackgrounds() {
@@ -246,6 +392,7 @@ window.__ModuleLoader__.load({
       }
       touched = [];
       lastCleared = 0;
+      restoreCleared();
       restoreRootVars();
     }
 
@@ -261,6 +408,7 @@ window.__ModuleLoader__.load({
       modeOn = chat;
       try {
         document.documentElement.classList.toggle("dshbg-on", chat);
+        document.documentElement.classList.toggle("dshbg-clear", chat && meta.autoClear !== false);
       } catch (e) {}
       if (chat) {
         enforceRootVars();
@@ -297,6 +445,8 @@ window.__ModuleLoader__.load({
         syncTimer = 0;
         // 用带滞后的判定，避免覆盖层/浮层让视图判定抖动
         syncMode(false);
+        // DOM 变了就顺带清扫一次，新出现的面板也能被透明化
+        scheduleSweep();
       }, 300);
     }
     function watchView() {
@@ -904,7 +1054,7 @@ window.__ModuleLoader__.load({
     }
 
     /* ---------------- UI ---------------- */
-    var meta = { activeKey: "", fit: "cover", opacity: 1, scrim: 0.35, enabled: true, effectStrength: 1 };
+    var meta = { activeKey: "", fit: "cover", opacity: 1, scrim: 0.35, enabled: true, effectStrength: 1, autoClear: true };
     var items = [];
     var panel = null;
     var msgEl = null;
@@ -925,7 +1075,10 @@ window.__ModuleLoader__.load({
     function setMsg(t) { if (msgEl) msgEl.textContent = t || ""; }
 
     function saveMeta(patch) {
+      var beforeClear = meta.autoClear;
       for (var k in patch) meta[k] = patch[k];
+      // 深度透明开关要在保存前立即生效，不然要等下一次视图同步
+      if (beforeClear !== meta.autoClear) applyClearMode();
       return dbPut(META_KEY, meta)
         .then(function () { return applyMeta(meta); })
         .then(function () { renderStatus(); })
@@ -1023,6 +1176,7 @@ window.__ModuleLoader__.load({
           meta.scrim = m.scrim == null ? 0.35 : m.scrim;
           meta.enabled = m.enabled !== false;
           meta.effectStrength = m.effectStrength == null ? 1 : m.effectStrength;
+          meta.autoClear = m.autoClear !== false;
         }
       }).catch(function (e) {
         setMsg("读取失败：" + String((e && e.message) || e));
@@ -1176,6 +1330,23 @@ window.__ModuleLoader__.load({
       enRow.appendChild(en);
       enRow.appendChild(el("span", null, "启用动态背景"));
       box.appendChild(enRow);
+
+      // 深度透明：运行时清掉仍然不透明的大块面板（输入框改毛玻璃）
+      var acRow = el("div", ROW);
+      var ac = el("input");
+      ac.type = "checkbox";
+      ac.checked = meta.autoClear !== false;
+      ac.addEventListener("change", function () {
+        saveMeta({ autoClear: ac.checked }).then(function () {
+          renderStatus();
+          setMsg(ac.checked ? "已开启深度透明，正在清理面板底色" : "已还原面板底色");
+        });
+      });
+      acRow.appendChild(ac);
+      var acLabel = el("span", null, "深度透明（清掉残留的不透明面板）");
+      acLabel.title = "按「面积 + 计算背景」判定，自动把按钮组/卡片/标题条之类的实心底色清成透明；输入框会改成毛玻璃";
+      acRow.appendChild(acLabel);
+      box.appendChild(acRow);
 
       var fitRow = el("div", ROW);
       fitRow.appendChild(el("span", null, "填充"));
@@ -1385,6 +1556,8 @@ window.__ModuleLoader__.load({
           setTimeout(function () { syncMode(true); renderStatus(); }, 300);
           setTimeout(function () { syncMode(true); }, 1200);
           setTimeout(function () { syncMode(true); renderStatus(); }, 2500);
+          // 常驻兜底：即使没有 DOM 变动，也定期把新冒出来的不透明面板清一遍
+          try { setInterval(scheduleSweep, 2000); } catch (e) {}
         });
       } catch (e) {
         console.warn("[dsh-dynamic-bg]", e);

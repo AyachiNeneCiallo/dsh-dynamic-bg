@@ -15,6 +15,7 @@
 - 🧲 **可拖动按钮**：左下角 🎞 按钮可拖到任意位置，位置会记住
 - 💾 **持久化**：视频与设置存在浏览器 IndexedDB，重启 DSH 后仍在
 - 🚫 **不污染其它页面**：设置页、插件市场等整页视图会自动还原成 DSH 原生外观
+- 🫥 **深度透明**：运行时按「面积 + 计算背景」清扫残留的不透明面板（按钮组、卡片、标题条），输入框自动改毛玻璃；关掉开关即完整还原
 - 🪶 **零第三方依赖**：不依赖 react 或任何 npm 包；宿主侧只读本地文件，不访问网络
 
 ## 安装
@@ -58,6 +59,13 @@ dsh plugin --profile web add github:AyachiNeneCiallo/dsh-dynamic-bg
    - **白色遮罩**：叠加在视频上的白色蒙层，越大画面越白、文字越清楚
 5. 面板底部状态行会显示：启用状态、视频是否挂载、分辨率、能否播放、壁纸模式判定
 
+> **深度透明（默认开启）**：会周期性清扫面积够大、背景不透明的面板，把它们清成透明；
+> 交互控件（按钮 / 输入框 / 下拉）不动，右栏那层 45% 蒙层保留，普通输入框改成毛玻璃。
+> 不想要就取消勾选，被清过的底色会完整还原。
+>
+> 注：**右上角约 42px 的窗口按钮区无法透明化**——那是 Electron 的原生标题栏叠加
+> （`titleBarOverlay` + `backgroundMaterial: acrylic`），不在网页 DOM 内，任何 CSS 都碰不到它。
+
 ### 用 Wallpaper Engine 壁纸
 
 1. 面板里点 **「Wallpaper Engine 壁纸…」**，插件会扫描本机所有 Steam 库（含多盘、`libraryfolders.vdf`）里的创意工坊目录
@@ -76,6 +84,7 @@ dsh plugin --profile web add github:AyachiNeneCiallo/dsh-dynamic-bg
 | `opacity` | 亮度 0.1–1 | `1` |
 | `scrim` | 白色遮罩强度 0–0.9 | `0.35` |
 | `effectStrength` | 场景动效强度 0–3 | `1` |
+| `autoClear` | 深度透明：清掉残留的不透明面板 | `true` |
 
 设置保存在浏览器 IndexedDB 的 `dsh-dynamic-bg` 数据库中。
 
